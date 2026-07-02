@@ -1,0 +1,8 @@
+# Optional dependencies for real profile vectorization.
+# Install only when you want to run BGE-M3 / bge-large-zh and a real vector database locally.
+sentence-transformers
+chromadb
+
+# Optional production vector store adapter.
+# Requires a running Milvus service and MILVUS_URI in backend/.env.
+pymilvus

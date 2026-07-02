@@ -1,0 +1,8 @@
+fastapi==0.136.1
+uvicorn[standard]==0.41.0
+pydantic==2.12.5
+pillow==12.2.0
+imageio==2.37.3
+imageio-ffmpeg==0.6.0
+pypdf==6.4.0
+httpx==0.28.1
