@@ -484,7 +484,7 @@ def _agnes_overlay_filter_graph(overlay_width: int, overlay_height: int) -> str:
     height = max(2, int(overlay_height))
     return (
         f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:0x0f172a,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
         "setsar=1[agnes];"
         "[0:v][agnes]overlay=W-w-34:H-h-118:enable='between(t,8,34)'[video]"
     )
