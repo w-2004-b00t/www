@@ -20,8 +20,16 @@ function Get-ListeningProcessIds([int] $port) {
 
 function Test-BackendHealth {
   try {
-    $response = Invoke-RestMethod -Uri $backendHealthUrl -TimeoutSec 2
-    return $response.code -eq 0
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $backendHealthUrl -TimeoutSec 8
+    if ($response.StatusCode -ne 200) {
+      return $false
+    }
+    try {
+      $payload = $response.Content | ConvertFrom-Json
+      return $payload.code -eq 0
+    } catch {
+      return $true
+    }
   } catch {
     return $false
   }
@@ -82,7 +90,7 @@ if (Test-Path -LiteralPath $venvPython) {
 $backendPids = Get-ListeningProcessIds 8001
 if ($backendPids.Count -gt 0) {
   Write-Host "Backend port 8001 is already in use by PID(s): $($backendPids -join ', ')"
-  if (-not (Wait-BackendHealth 10)) {
+  if (-not (Wait-BackendHealth 45)) {
     throw "Port 8001 is occupied, but $backendHealthUrl is not healthy. Stop the occupying process or change the port."
   }
   if (-not (Test-KnowledgeGraphRoute)) {
