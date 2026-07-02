@@ -75,6 +75,25 @@ STORYBOARD_LEAKAGE_PATTERNS = (
     "本地渲染",
     "HyperFrames",
     "EduAgent Studio",
+    "Teaching MP4",
+    "knowledge animation",
+    "subtitles",
+    "scenes",
+    "任务 ID",
+    "视频 ID",
+    "远端任务",
+    "制作痕迹",
+)
+
+MOJIBAKE_PATTERNS = (
+    "鏃",
+    "璇",
+    "绱",
+    "妯",
+    "渚",
+    "嵁",
+    "钦?",
+    "�",
 )
 
 
@@ -1100,7 +1119,7 @@ def _scene_visual_html_v3(scene: dict[str, Any]) -> str:
     visual_model = scene.get("visualModel") if isinstance(scene.get("visualModel"), dict) else {}
     model_type = str(visual_model.get("type") or "")
     example = scene.get("exampleData") if isinstance(scene.get("exampleData"), dict) else {}
-    steps = [str(item) for item in scene.get("operationSteps", []) if str(item).strip()]
+    steps = [_clean_video_text(item) for item in scene.get("operationSteps", []) if _clean_video_text(item)]
     title = _escape(_board_heading(scene))
     if model_type in {"sequence_array", "linked_nodes"}:
         sequence = _example_sequence(example)
@@ -1117,51 +1136,53 @@ def _scene_visual_html_v3(scene: dict[str, Any]) -> str:
 
 
 def _teaching_heading(scene: dict[str, Any]) -> str:
-    title = str(scene.get("screenTitle") or "").strip()
+    title = _clean_video_text(scene.get("screenTitle") or "")
     if title and not _looks_like_production_label(title):
         return title
     concepts = scene.get("keyConcepts") if isinstance(scene.get("keyConcepts"), list) else []
-    first_concept = next((str(item).strip() for item in concepts if str(item).strip()), "")
+    first_concept = next((_clean_video_text(item) for item in concepts if _clean_video_text(item)), "")
     return first_concept or "本节要点"
 
 
 def _board_heading(scene: dict[str, Any]) -> str:
     visual_model = scene.get("visualModel") if isinstance(scene.get("visualModel"), dict) else {}
-    description = str(visual_model.get("description") or "").strip()
+    description = _clean_video_text(visual_model.get("description") or "")
     if description and not _looks_like_production_label(description):
         return description[:42]
     concepts = scene.get("keyConcepts") if isinstance(scene.get("keyConcepts"), list) else []
-    useful = [str(item).strip() for item in concepts if str(item).strip()]
+    useful = [_clean_video_text(item) for item in concepts if _clean_video_text(item)]
     return "、".join(useful[:2]) or "结构变化演示"
 
 
 def _looks_like_production_label(value: str) -> bool:
-    return any(token in value for token in ("分镜", "镜头", "画面", "字幕", "旁白", "时间段", "录屏", "脚本"))
+    return any(token in value for token in STORYBOARD_LEAKAGE_PATTERNS) or any(
+        token in value for token in ("分镜", "镜头", "画面", "字幕", "旁白", "时间段", "录屏", "脚本")
+    )
 
 
 def _expected_result_text(example: dict[str, Any], scene: dict[str, Any]) -> str:
     value = example.get("expectedResult")
     if isinstance(value, list):
-        return " -> ".join(str(item) for item in value[:8])
-    if str(value or "").strip():
-        return str(value).strip()
-    return str(scene.get("formulaOrComplexity") or "暂停思考，再看答案")
+        return " -> ".join(_clean_video_text(item) for item in value[:8] if _clean_video_text(item))
+    if _clean_video_text(value):
+        return _clean_video_text(value)
+    return _clean_video_text(scene.get("formulaOrComplexity") or "暂停思考，再看答案")
 
 
 def _example_sequence(example: dict[str, Any]) -> list[str]:
     sequence = example.get("sequence")
     if isinstance(sequence, list):
-        return [str(item) for item in sequence if str(item).strip()][:8] or ["A", "B", "C", "D"]
+        return [_clean_video_text(item) for item in sequence if _clean_video_text(item)][:8] or ["A", "B", "C", "D"]
     return ["A", "B", "C", "D"]
 
 
 def _operation_result_sequence(example: dict[str, Any], model_type: str) -> list[str]:
     expected = example.get("expectedResult")
     if isinstance(expected, list) and expected:
-        return [str(item) for item in expected][:8]
+        return [_clean_video_text(item) for item in expected if _clean_video_text(item)][:8]
     sequence = _example_sequence(example)
     if model_type == "insert_shift":
-        value = str(example.get("insertValue") or "X")
+        value = _clean_video_text(example.get("insertValue") or "X")
         try:
             index = max(0, min(len(sequence), int(example.get("insertIndex", 2))))
         except (TypeError, ValueError):
@@ -1198,10 +1219,24 @@ def _steps_html(steps: list[str]) -> str:
 
 
 def _short_video_text(value: Any, limit: int) -> str:
-    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = re.sub(r"\s+", " ", _clean_video_text(value)).strip()
     if len(text) <= limit:
         return text
     return text[: max(1, limit - 1)].rstrip("，。；、 ") + "…"
+
+
+def _clean_video_text(value: Any) -> str:
+    text = str(value or "")
+    text = re.sub(r"<[^>]*>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    for pattern in STORYBOARD_LEAKAGE_PATTERNS:
+        text = text.replace(pattern, "")
+    for pattern in MOJIBAKE_PATTERNS:
+        if pattern in text:
+            return ""
+    text = re.sub(r"/div>|</?div>?|</?[a-z][^>]*>?", " ", text, flags=re.I)
+    return re.sub(r"\s+", " ", text).strip(" ：:，,。；;|/")
 
 
 def _complexity_table_html(example: dict[str, Any]) -> str:
@@ -2539,7 +2574,7 @@ def _safe_name(value: str) -> str:
 
 
 def _escape(value: Any) -> str:
-    return html.escape(str(value or ""), quote=True)
+    return html.escape(_clean_video_text(value), quote=True)
 
 
 def _now() -> str:

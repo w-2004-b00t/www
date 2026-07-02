@@ -34,7 +34,6 @@ const renderModeOptions: Array<{ label: string; value: VideoRenderMode; desc: st
 const videoResource = computed(() => resource.resources.find((item) => item.resourceType === 'video_script'))
 const videoResourceId = computed(() => videoResource.value?.id || '')
 const hasVideoResource = computed(() => Boolean(videoResourceId.value))
-const personalization = computed(() => videoPayload.value?.personalizationEvidence)
 const effectiveStatus = computed<VideoDemoJobStatus>(() => {
   if (currentJob.value?.status === 'completed' && currentJob.value.schemaVersion !== 'knowledge_video_v2') return 'idle'
   return normalizeStatus(currentJob.value?.status || videoPayload.value?.videoStatus || 'idle')
@@ -57,21 +56,45 @@ const hasVerifiedVideo = computed(() => Boolean(
 ))
 const videoSourceUrl = computed(() => (hasVerifiedVideo.value ? absoluteMediaUrl(currentJob.value?.videoUrl || videoPayload.value?.videoUrl || '') : ''))
 const compositionWarning = computed(() => currentJob.value?.compositionWarning || '')
+const isPreviewVideo = computed(() => Boolean(
+  currentJob.value?.isPreviewVideo
+  || currentJob.value?.compositionWarning
+  || currentJob.value?.fallbackVideoUrl
+  || currentJob.value?.fallbackReason === 'composition_failed',
+))
+const videoQualityLabel = computed(() => {
+  if (isPreviewVideo.value) return '预览版，可重新生成完整版'
+  if (hasVerifiedVideo.value) return '已完成本地 MP4 校验'
+  return '等待生成'
+})
+const evidenceSummary = computed(() => {
+  if (hasVerifiedVideo.value) return '本视频基于课程资料生成，已完成媒体校验。'
+  if (isPreviewVideo.value) return '已生成可播放预览片段，完整版可重新生成。'
+  return '生成后可查看课程资料、知识点与媒体校验结果。'
+})
+const generatedAtText = computed(() => currentJob.value?.generatedAt || currentJob.value?.finishedAt || '待生成')
+const citedDocuments = computed(() => {
+  const citations = videoPayload.value?.citations || []
+  const names = citations.map((item) => item.documentName).filter(Boolean)
+  return Array.from(new Set(names)).slice(0, 3).join('、') || '课程资料'
+})
+const citationLocations = computed(() => {
+  const citations = videoPayload.value?.citations || []
+  const labels = citations.map((item) => {
+    const page = item.page ? `第 ${item.page} 页` : ''
+    return [item.sourceLocation, page].filter(Boolean).join(' · ')
+  }).filter(Boolean)
+  return Array.from(new Set(labels)).slice(0, 3).join('；') || '课程片段'
+})
+const knowledgePoints = computed(() => {
+  const concepts = (videoPayload.value?.scenes || []).flatMap((scene) => scene.keyConcepts || [])
+  return Array.from(new Set(concepts.map((item) => String(item).trim()).filter(Boolean))).slice(0, 6).join('、') || videoPayload.value?.topic || '课程知识点'
+})
 const renderLogTail = computed(() => currentJob.value?.renderLogTail || [])
 const generateButtonText = computed(() => {
   if (selectedRenderMode.value === 'full_hybrid') return '生成正式成片'
   if (selectedRenderMode.value === 'agnes_clip') return '生成快速片段'
   return '生成教学动画'
-})
-const renderModeLabel = computed(() => {
-  if (currentJob.value && !currentJob.value.renderMode) return '正式成片（旧任务）'
-  const mode = currentJob.value?.renderMode || selectedRenderMode.value
-  return renderModeOptions.find((item) => item.value === mode)?.label || mode
-})
-const renderProfileText = computed(() => {
-  const profile = currentJob.value?.renderProfile
-  if (!profile) return ''
-  return `${profile.width}x${profile.height} / ${profile.fps}fps / ${profile.durationSeconds}s`
 })
 const segmentRows = computed(() => {
   const progress = currentJob.value?.segmentProgress || {}
@@ -107,7 +130,11 @@ const statusMeta = computed(() => {
     validating: { label: '媒体校验', desc: currentJob.value?.stageMessage || '正在使用 FFprobe 校验视频文件。', type: 'warning' },
     composing: { label: '合成成片', desc: currentJob.value?.stageMessage || '本地动画与 FFmpeg 正在合成 3 分钟教学视频。', type: 'warning' },
     verifying: { label: '转存中', desc: currentJob.value?.stageMessage || '视频已生成，正在转存为本地 MP4。', type: 'warning' },
-    completed: { label: '已完成', desc: currentJob.value?.compositionWarning || `本次知识点教学 MP4 已由${generationSource.value}生成并保存到本地媒体库。`, type: currentJob.value?.compositionWarning ? 'warning' : 'success' },
+    completed: {
+      label: isPreviewVideo.value ? '预览版' : '已完成',
+      desc: isPreviewVideo.value ? '已生成可播放预览片段，可重新生成完整版。' : '本次知识点教学 MP4 已生成并完成本地媒体校验。',
+      type: isPreviewVideo.value ? 'warning' : 'success',
+    },
     failed: { label: '生成失败', desc: currentJob.value?.errorDetail || currentJob.value?.error || videoPayload.value?.videoError || '视频生成失败，未产出可播放 MP4。', type: 'danger' },
     cancelled: { label: '已取消', desc: currentJob.value?.stageMessage || '视频生成任务已取消。', type: 'info' },
     orphaned: { label: '待恢复', desc: currentJob.value?.stageMessage || '任务执行中断，等待后台恢复。', type: 'warning' },
@@ -288,18 +315,11 @@ onBeforeUnmount(stopPolling)
         <div>
           <strong>{{ statusMeta.desc }}</strong>
           <span>生成来源：{{ generationSource }}</span>
-          <span v-if="currentJob?.providerTaskId">任务 ID：{{ currentJob.providerTaskId }}</span>
-          <span v-if="currentJob?.providerVideoId">视频 ID：{{ currentJob.providerVideoId }}</span>
           <span v-if="currentJob?.progress !== undefined">进度：{{ currentJob.progress }}%</span>
-          <span>渲染模式：{{ renderModeLabel }}</span>
-          <span v-if="renderProfileText">渲染规格：{{ renderProfileText }}</span>
-          <span v-if="currentJob?.compositionStage">合成阶段：{{ currentJob.compositionStage }}</span>
-          <span v-if="currentJob?.lastHeartbeatAt">最后心跳：{{ currentJob.lastHeartbeatAt }}</span>
-          <span v-if="currentJob?.retryCount">自动重试：{{ currentJob.retryCount }} 次</span>
+          <span>媒体状态：{{ videoQualityLabel }}</span>
+          <span v-if="generatedAtText !== '待生成'">生成时间：{{ generatedAtText }}</span>
           <span v-if="currentJob?.nextRetryAt && effectiveStatus === 'retry_wait'">下次重试：{{ currentJob.nextRetryAt }}</span>
-          <span v-if="currentJob?.startedAt">开始：{{ currentJob.startedAt }}</span>
-          <span v-if="currentJob?.finishedAt">结束：{{ currentJob.finishedAt }}</span>
-          <div v-if="effectiveStatus === 'failed' || effectiveStatus === 'orphaned'" class="failure-actions">
+          <div v-if="isPreviewVideo || effectiveStatus === 'failed' || effectiveStatus === 'orphaned'" class="failure-actions">
             <el-button size="small" :icon="Clipboard" @click="copyFailure">复制错误</el-button>
             <el-button
               size="small"
@@ -307,9 +327,9 @@ onBeforeUnmount(stopPolling)
               :icon="Wand2"
               :loading="generating"
               :disabled="!hasVideoResource"
-              @click="currentJob?.retryable ? retryCurrentStage() : generateVideo()"
+              @click="isPreviewVideo ? generateVideo() : (currentJob?.retryable ? retryCurrentStage() : generateVideo())"
             >
-              {{ currentJob?.retryable ? '重试当前阶段' : '重新生成' }}
+              {{ isPreviewVideo ? '重新生成完整版' : (currentJob?.retryable ? '重试当前阶段' : '重新生成') }}
             </el-button>
           </div>
         </div>
@@ -334,11 +354,10 @@ onBeforeUnmount(stopPolling)
       <div class="panel-head">
         <div>
           <h2 class="section-title">知识点教学成片</h2>
-          <p class="section-desc">主流程只播放已校验并转存到本地媒体库的 MP4；视频主体必须包含知识讲解、动态图示、例题操作和字幕。</p>
+          <p class="section-desc">播放基于课程资料生成的教学 MP4；视频主体包含知识讲解、动态图示、例题操作和字幕。</p>
         </div>
         <div class="panel-tags">
-          <el-tag :type="generationSourceType" effect="plain">{{ generationSource }}</el-tag>
-          <el-tag effect="plain">{{ renderModeLabel }}</el-tag>
+          <el-tag :type="isPreviewVideo ? 'warning' : generationSourceType" effect="plain">{{ videoQualityLabel }}</el-tag>
         </div>
       </div>
 
@@ -355,13 +374,8 @@ onBeforeUnmount(stopPolling)
       <div v-if="videoSourceUrl" class="video-shell">
         <video class="real-video" :src="videoSourceUrl" controls preload="metadata" playsinline />
         <div class="video-caption">
-          <strong>{{ videoPayload?.videoRenderer || '知识点教学视频，本地媒体转存 MP4' }}</strong>
-          <span>
-            视觉质量：{{ currentJob?.visualQuality || 'animated_lesson' }}；
-            制作痕迹评分：{{ currentJob?.storyboardLeakageScore ?? 0 }}；
-            MP4 输出：{{ currentJob?.downloadedAt ? '已转存' : '待转存' }}；
-            远端任务：{{ currentJob?.providerTaskId || '待创建' }}。
-          </span>
+          <strong>{{ isPreviewVideo ? '知识点教学视频预览版' : '知识点教学视频正式版' }}</strong>
+          <span>{{ evidenceSummary }}</span>
           <a :href="videoSourceUrl" download>
             <el-button :icon="Download">下载 MP4</el-button>
           </a>
@@ -385,48 +399,28 @@ onBeforeUnmount(stopPolling)
       <button class="evidence-trigger" type="button" @click="evidenceOpen = !evidenceOpen">
         <span>
           <strong>生成依据</strong>
-          <small>查看 DeepSeek 教学内容、课程引用、画像依据和视频生成任务状态；主播放器不展示制作脚本。</small>
+          <small>{{ evidenceSummary }}</small>
         </span>
         <el-tag effect="plain">{{ evidenceOpen ? '收起' : '展开' }}</el-tag>
       </button>
 
-      <div v-if="evidenceOpen" class="evidence-content">
-        <div class="evidence-grid">
-          <article>
-            <span>当前路径阶段</span>
-            <strong>{{ personalization?.activeStage || '未进入路径' }}</strong>
-          </article>
-          <article>
-            <span>最近测评</span>
-            <strong>{{ personalization?.latestScore ?? '暂无' }}</strong>
-          </article>
-          <article>
-            <span>生成状态</span>
-            <strong>{{ effectiveStatus }}</strong>
-          </article>
-          <article>
-            <span>素材来源</span>
-            <strong>{{ generationSource }}</strong>
-          </article>
-          <article>
-            <span>生成模式</span>
-            <strong>{{ renderModeLabel }} · {{ currentJob?.generationMode || videoPayload.generationMode }}</strong>
-          </article>
-          <article v-if="renderProfileText">
-            <span>渲染规格</span>
-            <strong>{{ renderProfileText }}</strong>
-          </article>
-          <article>
-            <span>视频来源</span>
-            <strong>{{ currentJob?.provider || videoPayload.videoProvider || '本地教学动画' }}</strong>
-          </article>
-          <article>
-            <span>视觉质量</span>
-            <strong>{{ currentJob?.visualQuality || '待生成' }}</strong>
-          </article>
-          <article>
-            <span>制作痕迹评分</span>
-            <strong>{{ currentJob?.storyboardLeakageScore ?? 0 }}</strong>
+        <div v-if="evidenceOpen" class="evidence-content">
+          <div class="evidence-grid">
+            <article>
+            <span>课程资料</span>
+            <strong>{{ citedDocuments }}</strong>
+            </article>
+            <article>
+            <span>引用位置</span>
+            <strong>{{ citationLocations }}</strong>
+            </article>
+            <article>
+            <span>知识点</span>
+            <strong>{{ knowledgePoints }}</strong>
+            </article>
+            <article>
+            <span>校验状态</span>
+            <strong>{{ videoQualityLabel }}</strong>
           </article>
         </div>
 

@@ -215,6 +215,7 @@ export interface VideoDemoJob {
   fallbackVideoUrl?: string | null
   fallbackReason?: string | null
   compositionWarning?: string | null
+  isPreviewVideo?: boolean
   videoMimeType?: string
   videoDurationSeconds?: number | null
   progress?: number

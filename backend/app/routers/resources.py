@@ -195,7 +195,7 @@ def generate_resource_video_demo(
         if existing and existing.get("status") in {
             "queued", "submitting", "rendering", "retry_wait", "downloading",
             "validating", "composing", "completed", "orphaned",
-        } and existing.get("renderMode") == render_mode:
+        } and existing.get("renderMode") == render_mode and not _is_preview_video_job(existing):
             existing["reuseReason"] = (
                 "completed_video" if existing.get("status") == "completed" else "running_job"
             )
@@ -325,6 +325,20 @@ def _video_job_rank(job: dict) -> tuple[int, str]:
     if status == "orphaned":
         return (2, timestamp)
     return (1, timestamp)
+
+
+def _is_preview_video_job(job: dict | None) -> bool:
+    return bool(
+        job
+        and job.get("status") == "completed"
+        and (
+            job.get("compositionWarning")
+            or job.get("fallbackVideoUrl")
+            or job.get("fallbackReason") == "composition_failed"
+            or job.get("compositionStage") == "agnes_clip_fallback"
+            or job.get("isPreviewVideo")
+        )
+    )
 
 
 def _run_local_video_job_async(job_id: str) -> None:

@@ -3220,7 +3220,8 @@ def _normalize_scene_kind(value: Any, fallback: str) -> str:
 def _clean_text(value: Any, fallback: str, limit: int = 360) -> str:
     if value is None:
         return fallback
-    text = str(value).strip()
+    text = re.sub(r"<[^>]*>", " ", str(value))
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return fallback
     return text[:limit]
@@ -3297,6 +3298,21 @@ _STORYBOARD_META_PATTERNS = (
     "录屏",
     "分镜脚本",
     "本地渲染",
+    "HyperFrames",
+    "EduAgent Studio",
+    "Teaching MP4",
+    "knowledge animation",
+    "subtitles",
+    "scenes",
+    "任务 ID",
+    "视频 ID",
+    "远端任务",
+    "制作痕迹",
+    "</div>",
+    "<div",
+    "钦?",
+    "鏃",
+    "璇",
 )
 
 
