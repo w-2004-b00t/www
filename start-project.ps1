@@ -12,6 +12,7 @@ $frontendOutLog = Join-Path $root "frontend-start.out.log"
 $frontendErrLog = Join-Path $root "frontend-start.err.log"
 $backendHealthUrl = "http://127.0.0.1:8001/api/health"
 $backendKnowledgeGraphUrl = "http://127.0.0.1:8001/api/knowledge/graph?course_id=course_data_structure"
+$backendVideoDemoUrl = "http://127.0.0.1:8001/api/resources/__startup_probe__/video-demo/generate"
 
 function Get-ListeningProcessIds([int] $port) {
   @(Get-NetTCPConnection -State Listen -LocalAddress 127.0.0.1 -LocalPort $port -ErrorAction SilentlyContinue |
@@ -41,6 +42,27 @@ function Test-KnowledgeGraphRoute {
     return $response.StatusCode -eq 200
   } catch {
     return $false
+  }
+}
+
+function Test-VideoModeContract {
+  try {
+    $body = @{ mode = "animated_lesson" } | ConvertTo-Json -Compress
+    Invoke-WebRequest -UseBasicParsing -Uri $backendVideoDemoUrl -Method POST -ContentType "application/json" -Body $body -TimeoutSec 10 *> $null
+    return $true
+  } catch {
+    $response = $_.Exception.Response
+    if ($null -eq $response) {
+      return $false
+    }
+    try {
+      $stream = $response.GetResponseStream()
+      $reader = New-Object System.IO.StreamReader($stream)
+      $content = $reader.ReadToEnd()
+      return -not ($content -like "*视频生成模式必须*")
+    } catch {
+      return $false
+    }
   }
 }
 
@@ -95,6 +117,9 @@ if ($backendPids.Count -gt 0) {
   }
   if (-not (Test-KnowledgeGraphRoute)) {
     throw "Port 8001 is running an outdated backend without $backendKnowledgeGraphUrl. Restart that backend process, then run this script again."
+  }
+  if (-not (Test-VideoModeContract)) {
+    throw "Port 8001 is running an outdated backend that does not support animated_lesson video generation. Restart that backend process, then run this script again."
   }
   Write-Host "Reusing healthy backend on http://127.0.0.1:8001 ..."
 } else {
